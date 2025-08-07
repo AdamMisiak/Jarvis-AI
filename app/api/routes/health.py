@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
 from app import __version__
 from app.config.settings import Settings, get_settings
@@ -23,8 +24,7 @@ async def health_check(
 ) -> dict[str, str]:
     """Main application health check endpoint."""
     try:
-        # Test database connection
-        await db_session.execute("SELECT 1")
+        await db_session.execute(text("SELECT 1"))
         db_status = "healthy"
     except Exception:
         db_status = "unhealthy"
