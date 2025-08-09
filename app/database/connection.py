@@ -9,7 +9,7 @@ settings = get_settings()
 
 # Create async engine
 engine = create_async_engine(
-    settings.database_url,
+    settings.database_url_computed,
     echo=settings.database_echo,
     future=True,
 )
@@ -40,7 +40,7 @@ async def init_db() -> None:
     """Initialize database tables."""
     async with engine.begin() as conn:
         # Import all models here to ensure they are registered
-        from app.models.chat import ChatSession, ChatMessage
+        from app.models import ChatMessage
         
         # Create all tables
         await conn.run_sync(Base.metadata.create_all) 

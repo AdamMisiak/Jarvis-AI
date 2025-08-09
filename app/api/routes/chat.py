@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings, get_settings
 from app.database.connection import get_db_session
-from app.schemas.chat import ChatError, ChatRequest, ChatResponse, ChatSessionResponse
+from app.schemas.chat import ChatError, ChatRequest, ChatResponse
 from app.services.chat_service import ChatServiceInterface, DatabaseChatService
 
 router = APIRouter(tags=["chat"])
@@ -55,23 +55,4 @@ async def chat(
         )
 
 
-@router.get(
-    "/chat/sessions/{session_id}",
-    response_model=ChatSessionResponse,
-    summary="Get chat session",
-    description="Retrieve a chat session with all messages"
-)
-async def get_chat_session(
-    session_id: str,
-    chat_service: Annotated[ChatServiceInterface, Depends(get_chat_service)]
-) -> ChatSessionResponse:
-    """Get chat session with messages."""
-    session = await chat_service.get_session(session_id)
-    
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "Session not found", "code": "SESSION_NOT_FOUND"}
-        )
-    
-    return session 
+ 

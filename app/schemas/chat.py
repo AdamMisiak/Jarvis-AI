@@ -30,7 +30,6 @@ class ChatRequest(BaseModel):
     """Chat request schema."""
     
     message: str = Field(..., min_length=1, max_length=10000)
-    session_id: Optional[str] = None
     context: Optional[dict] = None
 
 
@@ -38,20 +37,8 @@ class ChatResponse(BaseModel):
     """Chat response schema."""
     
     message: str
-    session_id: str
     timestamp: datetime
     metadata: Optional[dict] = None
-
-
-class ChatSessionResponse(BaseModel):
-    """Chat session with messages response schema."""
-    
-    id: str
-    created_at: datetime
-    messages: list[ChatMessageResponse] = []
-
-    class Config:
-        from_attributes = True
 
 
 class ChatError(BaseModel):

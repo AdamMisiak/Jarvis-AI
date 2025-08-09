@@ -53,8 +53,9 @@ Environment variables (`.env`):
 POSTGRES_HOST=postgres
 POSTGRES_PORT=5432
 POSTGRES_USER=jarvis-ai
-POSTGRES_PASSWORD=arvis-ai
-POSTGRES_DB=arvis-ai
+POSTGRES_PASSWORD=jarvis123
+POSTGRES_DB=jarvis-ai
+DATABASE_URL=postgresql+asyncpg://jarvis-ai:jarvis123@postgres:5432/jarvis-ai
 
 # Redis
 REDIS_URL=redis://redis:6379/0

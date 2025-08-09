@@ -1,17 +1,14 @@
 """Chat service implementation."""
 
 import json
-import uuid
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.config.settings import Settings
-from app.models.chat import ChatMessage, ChatSession
-from app.schemas.chat import ChatRequest, ChatResponse, ChatSessionResponse
+from app.models import ChatMessage
+from app.schemas.chat import ChatRequest, ChatResponse
 
 
 class ChatServiceInterface(ABC):
@@ -20,11 +17,6 @@ class ChatServiceInterface(ABC):
     @abstractmethod
     async def process_message(self, request: ChatRequest) -> ChatResponse:
         """Process incoming chat message and return response."""
-        pass
-    
-    @abstractmethod
-    async def get_session(self, session_id: str) -> Optional[ChatSessionResponse]:
-        """Get chat session with messages."""
         pass
 
 
@@ -39,13 +31,8 @@ class DatabaseChatService(ChatServiceInterface):
     
     async def process_message(self, request: ChatRequest) -> ChatResponse:
         """Process chat message and generate response."""
-        # Get or create session
-        session_id = request.session_id or str(uuid.uuid4())
-        session = await self._get_or_create_session(session_id)
-        
         # Save user message
         user_message = await self._save_message(
-            session_id=session_id,
             content=request.message,
             is_user_message=True,
             metadata=request.context,
@@ -54,13 +41,11 @@ class DatabaseChatService(ChatServiceInterface):
         # Generate AI response
         response_content = await self._generate_response(
             request.message,
-            session_id,
             request.context
         )
         
         # Save AI response
         ai_message = await self._save_message(
-            session_id=session_id,
             content=response_content,
             is_user_message=False,
             metadata={
@@ -69,59 +54,23 @@ class DatabaseChatService(ChatServiceInterface):
             }
         )
         
-        # Count messages in session
-        message_count = await self._count_session_messages(session_id)
-        
         return ChatResponse(
             message=response_content,
-            session_id=session_id,
             timestamp=ai_message.timestamp,
             metadata={
                 "agent_name": self.agent_name,
-                "message_count": message_count,
                 "message_id": ai_message.id,
             }
         )
     
-    async def get_session(self, session_id: str) -> Optional[ChatSessionResponse]:
-        """Get chat session with messages."""
-        stmt = (
-            select(ChatSession)
-            .options(selectinload(ChatSession.messages))
-            .where(ChatSession.id == session_id)
-        )
-        result = await self.db_session.execute(stmt)
-        session = result.scalar_one_or_none()
-        
-        if not session:
-            return None
-        
-        return ChatSessionResponse.from_orm(session)
-    
-    async def _get_or_create_session(self, session_id: str) -> ChatSession:
-        """Get existing session or create new one."""
-        stmt = select(ChatSession).where(ChatSession.id == session_id)
-        result = await self.db_session.execute(stmt)
-        session = result.scalar_one_or_none()
-        
-        if not session:
-            session = ChatSession(id=session_id)
-            self.db_session.add(session)
-            await self.db_session.commit()
-            await self.db_session.refresh(session)
-        
-        return session
-    
     async def _save_message(
         self,
-        session_id: str,
         content: str,
         is_user_message: bool,
         metadata: Optional[dict] = None,
     ) -> ChatMessage:
         """Save message to database."""
         message = ChatMessage(
-            session_id=session_id,
             content=content,
             is_user_message=is_user_message,
             metadata_json=json.dumps(metadata) if metadata else None,
@@ -133,17 +82,9 @@ class DatabaseChatService(ChatServiceInterface):
         
         return message
     
-    async def _count_session_messages(self, session_id: str) -> int:
-        """Count messages in session."""
-        stmt = select(ChatMessage).where(ChatMessage.session_id == session_id)
-        result = await self.db_session.execute(stmt)
-        messages = result.scalars().all()
-        return len(messages)
-    
     async def _generate_response(
         self,
         message: str,
-        session_id: str,
         context: Optional[dict] = None
     ) -> str:
         """Generate AI response (placeholder implementation)."""

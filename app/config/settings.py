@@ -28,11 +28,14 @@ class Settings(BaseSettings):
     postgres_password: str
     postgres_db: str
     database_echo: bool
+    database_url: str = Field(default="")
     
     @computed_field
     @property
-    def database_url(self) -> str:
-        """Build database URL from components."""
+    def database_url_computed(self) -> str:
+        """Build database URL from components if not provided directly."""
+        if self.database_url:
+            return self.database_url
         return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
     
     # Redis configuration
