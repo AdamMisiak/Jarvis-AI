@@ -1,4 +1,4 @@
-"""Chat API schemas (Pydantic models)."""
+"""Chat message schemas."""
 
 from datetime import datetime
 from typing import Optional
@@ -24,26 +24,3 @@ class ChatMessageResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class ChatRequest(BaseModel):
-    """Chat request schema."""
-    
-    message: str = Field(..., min_length=1, max_length=10000)
-    context: Optional[dict] = None
-
-
-class ChatResponse(BaseModel):
-    """Chat response schema."""
-    
-    message: str
-    timestamp: datetime
-    metadata: Optional[dict] = None
-
-
-class ChatError(BaseModel):
-    """Chat error schema."""
-    
-    error: str
-    code: str
-    timestamp: datetime = Field(default_factory=datetime.now) 

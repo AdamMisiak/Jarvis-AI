@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings, get_settings
 from app.database.connection import get_db_session
-from app.schemas.chat import ChatError, ChatRequest, ChatResponse
-from app.services.chat_service import ChatServiceInterface, DatabaseChatService
+from app.schemas import ChatError, ChatRequest, ChatResponse
+from app.services.chat_service import LLMService
 
 router = APIRouter(tags=["chat"])
 
@@ -16,9 +16,8 @@ router = APIRouter(tags=["chat"])
 def get_chat_service(
     db_session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)]
-) -> ChatServiceInterface:
-    """Dependency injection for chat service."""
-    return DatabaseChatService(db_session, settings)
+) -> LLMService:
+    return LLMService(db_session, settings)
 
 
 @router.post(
@@ -35,20 +34,17 @@ def get_chat_service(
 )
 async def chat(
     request: ChatRequest,
-    chat_service: Annotated[ChatServiceInterface, Depends(get_chat_service)]
+    chat_service: Annotated[LLMService, Depends(get_chat_service)]
 ) -> ChatResponse:
-    """Process chat message and return AI agent response."""
     try:
         response = await chat_service.process_message(request)
         return response
-    
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": str(e), "code": "INVALID_REQUEST"}
         )
-    
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "Internal server error", "code": "INTERNAL_ERROR"}

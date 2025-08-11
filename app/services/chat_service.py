@@ -1,55 +1,43 @@
-"""Chat service implementation."""
+"""LLM service implementation using OpenAI GPT-4o."""
 
 import json
-from abc import ABC, abstractmethod
 from typing import Optional
 
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.models import ChatMessage
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas import ChatRequest, ChatResponse
+from app.prompts import BASE_SYSTEM_PROMPT
+
+# Constants
+OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_TEMPERATURE = 0.7
+REQUEST_TIMEOUT_SECONDS = 30.0
 
 
-class ChatServiceInterface(ABC):
-    """Chat service interface for dependency inversion."""
-    
-    @abstractmethod
-    async def process_message(self, request: ChatRequest) -> ChatResponse:
-        """Process incoming chat message and return response."""
-        pass
-
-
-class DatabaseChatService(ChatServiceInterface):
-    """Database-backed implementation of chat service."""
-    
+class LLMService:
     def __init__(self, db_session: AsyncSession, settings: Settings) -> None:
-        """Initialize chat service with database session and settings."""
         self.db_session = db_session
         self.settings = settings
-        self.agent_name = "Jarvis"  # Static agent name
     
     async def process_message(self, request: ChatRequest) -> ChatResponse:
-        """Process chat message and generate response."""
-        # Save user message
         user_message = await self._save_message(
             content=request.message,
             is_user_message=True,
             metadata=request.context,
         )
         
-        # Generate AI response
         response_content = await self._generate_response(
             request.message,
             request.context
         )
         
-        # Save AI response
         ai_message = await self._save_message(
             content=response_content,
             is_user_message=False,
             metadata={
-                "agent_name": self.agent_name,
                 "user_message_id": user_message.id,
             }
         )
@@ -58,7 +46,6 @@ class DatabaseChatService(ChatServiceInterface):
             message=response_content,
             timestamp=ai_message.timestamp,
             metadata={
-                "agent_name": self.agent_name,
                 "message_id": ai_message.id,
             }
         )
@@ -69,7 +56,6 @@ class DatabaseChatService(ChatServiceInterface):
         is_user_message: bool,
         metadata: Optional[dict] = None,
     ) -> ChatMessage:
-        """Save message to database."""
         message = ChatMessage(
             content=content,
             is_user_message=is_user_message,
@@ -87,26 +73,39 @@ class DatabaseChatService(ChatServiceInterface):
         message: str,
         context: Optional[dict] = None
     ) -> str:
-        """Generate AI response (placeholder implementation)."""
-        # This is where you'd integrate with OpenAI, Anthropic, etc.
-        # For now, simple echo with agent personality
-        
-        responses = [
-            f"Hello! I'm {self.agent_name}. You said: '{message}'",
-            f"As your personal AI agent {self.agent_name}, I understand you mentioned: '{message}'",
-            f"Interesting! {self.agent_name} here - I'm processing your message about: '{message}'",
-        ]
-        
-        # Simple selection based on message length
-        response_idx = len(message) % len(responses)
-        base_response = responses[response_idx]
-        
-        # Add context if available
+        """Generate AI response using OpenAI GPT-4o."""
         if context:
-            base_response += f" (Context: {context})"
+            user_content = f"Message: {message}\nContext: {json.dumps(context, ensure_ascii=False)}"
+        else:
+            user_content = message
+
+        headers = {
+            "Authorization": f"Bearer {self.settings.openai_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": BASE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            "temperature": DEFAULT_TEMPERATURE,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+                resp = await client.post(
+                    OPENAI_CHAT_COMPLETIONS_URL,
+                    headers=headers,
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                text = data["choices"][0]["message"]["content"].strip()
+        except Exception:
+            text = f"I couldn't reach the AI service. Echoing your message: '{message}'."
         
-        # Ensure response doesn't exceed max length
-        if len(base_response) > self.settings.max_response_length:
-            base_response = base_response[:self.settings.max_response_length - 3] + "..."
-        
-        return base_response 
+        max_len = max(1, int(self.settings.max_response_length))
+        if len(text) > max_len:
+            text = text[: max_len - 3] + "..."
+        return text 
