@@ -8,16 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import Settings, get_settings
 from app.database.connection import get_db_session
 from app.schemas import ChatError, ChatRequest, ChatResponse
-from app.services.chat_service import LLMService
+from app.services.assistance_service import AssistanceService
 
 router = APIRouter(tags=["chat"])
 
 
-def get_chat_service(
+def get_assistance_service(
     db_session: Annotated[AsyncSession, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)]
-) -> LLMService:
-    return LLMService(db_session, settings)
+) -> AssistanceService:
+    return AssistanceService(db_session, settings)
 
 
 @router.post(
@@ -34,21 +34,21 @@ def get_chat_service(
 )
 async def chat(
     request: ChatRequest,
-    chat_service: Annotated[LLMService, Depends(get_chat_service)]
+    assistance_service: Annotated[AssistanceService, Depends(get_assistance_service)]
 ) -> ChatResponse:
-    try:
-        response = await chat_service.process_message(request)
-        return response
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": str(e), "code": "INVALID_REQUEST"}
-        )
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": "Internal server error", "code": "INTERNAL_ERROR"}
-        )
+    # try:
+    response = await assistance_service.process_message(request)
+    return response
+    # except ValueError as e:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_400_BAD_REQUEST,
+    #         detail={"error": str(e), "code": "INVALID_REQUEST"}
+    #     )
+    # except Exception:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    #         detail={"error": "Internal server error", "code": "INTERNAL_ERROR"}
+    #     )
 
 
  

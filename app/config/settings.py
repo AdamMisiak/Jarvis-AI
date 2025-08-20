@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # External APIs
     openai_api_key: str
     anthropic_api_key: str
+    
+    # Langfuse configuration
+    langfuse_secret_key: str = Field(default="")
+    langfuse_public_key: str = Field(default="")
+    langfuse_host: str = Field(default="https://cloud.langfuse.com")
 
 
 @lru_cache
