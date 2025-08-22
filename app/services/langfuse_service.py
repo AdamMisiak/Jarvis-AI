@@ -1,14 +1,15 @@
-"""Langfuse tracing service for LLM observability."""
+"""Langfuse tracing service for LLM observability - focused on crucial operations only."""
 
 import os
 from typing import Optional, Dict, Any
+from contextlib import contextmanager
 from langfuse import observe, get_client
 
 from app.config.settings import Settings
 
 
 class LangfuseService:
-    """Service for managing Langfuse tracing and observability."""
+    """Service for managing Langfuse tracing - only crucial operations."""
     
     def __init__(self, settings: Settings) -> None:
         """Initialize Langfuse client with settings."""
@@ -22,47 +23,24 @@ class LangfuseService:
         # Initialize Langfuse client
         self.client = get_client()
     
-    def start_trace(
-        self,
-        name: str,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        tags: Optional[list[str]] = None,
-    ):
-        """Start a new trace for tracking a conversation or workflow."""
-        if user_id:
-            self.client.update_current_trace(user_id=user_id)
-        if session_id:
-            self.client.update_current_trace(session_id=session_id)
-        if metadata:
-            self.client.update_current_trace(metadata=metadata)
-        if tags:
-            self.client.update_current_trace(tags=tags)
-        
-        return self.client.start_as_current_span(name=name)
-    
-    def start_span(
-        self,
-        name: str,
-        input_data: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ):
-        """Start a span within current trace for tracking specific operations."""
+    @contextmanager
+    def span(self, name: str, input_data: Optional[Dict[str, Any]] = None, metadata: Optional[Dict[str, Any]] = None):
+        """Context manager for creating spans - only for crucial operations."""
         span = self.client.start_as_current_span(name=name)
+        
         if input_data:
             self.client.update_current_span(input=input_data)
         if metadata:
             self.client.update_current_span(metadata=metadata)
-        return span
+        
+        try:
+            yield span
+        finally:
+            # Span automatically ends when context exits
+            pass
     
-    def update_current_span(
-        self,
-        output: Optional[Any] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        level: Optional[str] = None,
-    ) -> None:
-        """Update current span with output data and metadata."""
+    def update_span(self, output: Optional[Any] = None, metadata: Optional[Dict[str, Any]] = None, level: Optional[str] = None):
+        """Update current span with data."""
         update_data = {}
         if output is not None:
             update_data["output"] = output
@@ -74,34 +52,16 @@ class LangfuseService:
         if update_data:
             self.client.update_current_span(**update_data)
     
-    def update_current_trace(
-        self,
-        output: Optional[Any] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-        tags: Optional[list[str]] = None,
-    ) -> None:
-        """Update current trace with final output and metadata."""
-        update_data = {}
-        if output is not None:
-            update_data["output"] = output
-        if metadata is not None:
-            update_data["metadata"] = metadata
-        if user_id is not None:
-            update_data["user_id"] = user_id
-        if session_id is not None:
-            update_data["session_id"] = session_id
-        if tags is not None:
-            update_data["tags"] = tags
-            
-        if update_data:
-            self.client.update_current_trace(**update_data)
+    def update_trace(self, **kwargs):
+        """Update current trace with metadata."""
+        if kwargs:
+            self.client.update_current_trace(**kwargs)
     
-    def flush(self) -> None:
+    def flush(self):
         """Flush all pending traces to Langfuse."""
         self.client.flush()
     
-    def observe_function(self, name: str):
-        """Decorator for observing functions."""
+    # Convenience method for the @observe decorator
+    def observe(self, name: str):
+        """Get the observe decorator for function tracing."""
         return observe(name=name)

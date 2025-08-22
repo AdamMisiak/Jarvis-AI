@@ -1,4 +1,4 @@
-"""Assistance service for handling chat logic and orchestrating LLM + Langfuse (based on AssistantService.ts pattern)."""
+"""Assistance service for handling chat logic and orchestrating LLM + Langfuse."""
 
 import json
 from typing import Optional, Dict, Any
@@ -19,15 +19,15 @@ class AssistanceService:
         self.db_session = db_session
         self.settings = settings
         
-        # Initialize independent services
+        # Initialize services
         self.llm_service = LLMService(settings)
         self.langfuse_service = LangfuseService(settings)
     
     @observe(name="chat_conversation")
     async def handle_chat_message(self, request: ChatRequest, context: Optional[AssistanceContext] = None) -> ChatResponse:
-        """Process a chat message with full tracing and database operations."""
-        # Update trace with conversation metadata
-        self.langfuse_service.update_current_trace(
+        """Process a chat message with essential tracing only."""
+        # Set trace metadata for the entire conversation
+        self.langfuse_service.update_trace(
             metadata={
                 "user_message": request.message,
                 "context": request.context,
@@ -37,70 +37,26 @@ class AssistanceService:
         )
         
         try:
-            # Save user message with span tracking
-            with self.langfuse_service.start_span(
-                name="save_user_message",
-                input_data={"message": request.message, "context": request.context}
-            ):
-                user_message = await self._save_message(
-                    content=request.message,
-                    is_user_message=True,
-                    metadata=request.context,
-                )
-                
-                self.langfuse_service.update_current_span(
-                    output={"message_id": user_message.id},
-                    level="INFO"
-                )
+            # Save user message (no tracing - not crucial)
+            user_message = await self._save_user_message(request)
             
-            # Generate response with tracing
-            with self.langfuse_service.start_span(
-                name="llm_generation",
-                input_data={
-                    "message": request.message,
-                    "context": request.context,
-                    "model": "gpt-4o"
-                }
-            ):
-                try:
-                    response_content = await self.llm_service.generate_response(
-                        request.message,
-                        request.context
-                    )
-                    
-                    self.langfuse_service.update_current_span(
-                        output={"response": response_content},
-                        level="INFO"
-                    )
-                    
-                except Exception as e:
-                    self.langfuse_service.update_current_span(
-                        output={"error": str(e)},
-                        level="ERROR",
-                        metadata={"error_type": type(e).__name__}
-                    )
-                    raise
+            # Generate AI response (crucial - trace this)
+            with self.langfuse_service.span("llm_generation", input_data={
+                "message_length": len(request.message),
+                "user_message": request.message,
+                "context": request.context
+            }):
+                response_content = await self._generate_ai_response(request)
+                self.langfuse_service.update_span(output={
+                    "response_length": len(response_content),
+                    "response_preview": response_content[:100] + "..." if len(response_content) > 100 else response_content
+                })
             
-            # Save AI message
-            with self.langfuse_service.start_span(
-                name="save_ai_message",
-                input_data={"response": response_content}
-            ):
-                ai_message = await self._save_message(
-                    content=response_content,
-                    is_user_message=False,
-                    metadata={
-                        "user_message_id": user_message.id,
-                    }
-                )
-                
-                self.langfuse_service.update_current_span(
-                    output={"message_id": ai_message.id},
-                    level="INFO"
-                )
+            # Save AI message (no tracing - not crucial)
+            ai_message = await self._save_ai_message(response_content, user_message.id)
             
             # Update trace with final result
-            self.langfuse_service.update_current_trace(
+            self.langfuse_service.update_trace(
                 output={
                     "response": response_content,
                     "user_message_id": user_message.id,
@@ -111,14 +67,12 @@ class AssistanceService:
             return ChatResponse(
                 message=response_content,
                 timestamp=ai_message.timestamp,
-                metadata={
-                    "message_id": ai_message.id,
-                }
+                metadata={"message_id": ai_message.id}
             )
             
         except Exception as e:
-            # Update trace with error information
-            self.langfuse_service.update_current_trace(
+            # Log error to trace (crucial for debugging)
+            self.langfuse_service.update_trace(
                 output={"error": str(e)},
                 metadata={"error_type": type(e).__name__}
             )
@@ -126,6 +80,29 @@ class AssistanceService:
         finally:
             # Ensure traces are flushed
             self.langfuse_service.flush()
+    
+    async def _save_user_message(self, request: ChatRequest) -> ChatMessage:
+        """Save user message to database - no tracing needed."""
+        return await self._save_message(
+            content=request.message,
+            is_user_message=True,
+            metadata=request.context,
+        )
+    
+    async def _generate_ai_response(self, request: ChatRequest) -> str:
+        """Generate AI response using LLM service - crucial operation."""
+        return await self.llm_service.generate_response(
+            request.message,
+            request.context
+        )
+    
+    async def _save_ai_message(self, response_content: str, user_message_id: int) -> ChatMessage:
+        """Save AI message to database - no tracing needed."""
+        return await self._save_message(
+            content=response_content,
+            is_user_message=False,
+            metadata={"user_message_id": user_message_id}
+        )
     
     async def process_message(self, request: ChatRequest) -> ChatResponse:
         """Backward compatibility method."""
