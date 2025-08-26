@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     openai_api_key: str
     anthropic_api_key: str
     
+    # FireCrawl configuration
+    firecrawl_api_key: str = Field(default="")
+    firecrawl_api_url: str = Field(default="https://api.firecrawl.dev")
+    
     # Langfuse configuration
     langfuse_secret_key: str = Field(default="")
     langfuse_public_key: str = Field(default="")

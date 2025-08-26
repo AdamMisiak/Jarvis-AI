@@ -37,7 +37,7 @@ async def chat(
     assistance_service: Annotated[AssistanceService, Depends(get_assistance_service)]
 ) -> ChatResponse:
     # try:
-    response = await assistance_service.process_message(request)
+    response = await assistance_service.handle_chat_message(request)
     return response
     # except ValueError as e:
     #     raise HTTPException(
