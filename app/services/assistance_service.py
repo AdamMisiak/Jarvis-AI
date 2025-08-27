@@ -9,6 +9,7 @@ from app.models import ChatMessage
 from app.schemas import ChatRequest, ChatResponse, LLMRequest, AssistanceContext
 from app.services.llm_service import LLMService
 from app.services.langfuse_service import LangfuseService
+from app.services.web_search_service import WebSearchService
 from app.config.settings import Settings
 
 
@@ -19,6 +20,7 @@ class AssistanceService:
         
         self.llm_service = LLMService(settings)
         self.langfuse_service = LangfuseService(settings)
+        self.web_search_service = WebSearchService(settings)
     
     @observe(name="chat_conversation")
     async def handle_chat_message(self, request: ChatRequest, context: Optional[AssistanceContext] = None) -> ChatResponse:
@@ -34,16 +36,23 @@ class AssistanceService:
         try:
             user_message = await self._save_user_message(request)
             
-            with self.langfuse_service.span("llm_generation", input_data={
-                "message_length": len(request.message),
-                "user_message": request.message,
-                "context": request.context
-            }):
-                response_content = await self._generate_ai_response(request)
-                self.langfuse_service.update_span(output={
-                    "response_length": len(response_content),
-                    "response_preview": response_content[:100] + "..." if len(response_content) > 100 else response_content
-                })
+            needs_web_search = await self.web_search_service.is_web_search_needed(request.message)
+            
+            if needs_web_search:
+                print(f"🔍 Web search needed for: {request.message}")
+                response_content = "Web search functionality not yet implemented"
+            else:
+                print(f"📝 No web search needed for: {request.message}")
+                with self.langfuse_service.span("llm_generation", input_data={
+                    "message_length": len(request.message),
+                    "user_message": request.message,
+                    "context": request.context
+                }):
+                    response_content = await self._generate_ai_response(request)
+                    self.langfuse_service.update_span(output={
+                        "response_length": len(response_content),
+                        "response_preview": response_content[:100] + "..." if len(response_content) > 100 else response_content
+                    })
             
             ai_message = await self._save_ai_message(response_content, user_message.id)
             
