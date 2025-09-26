@@ -2,26 +2,25 @@
 
 import json
 import re
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 from langfuse import observe
 
 from app.config.settings import Settings
+from app.config.constants import RESOURCES
 from app.services.llm_service import LLMService
-from app.prompts.search import WEB_SEARCH_DETECTOR_PROMPT
+from app.prompts.search import WEB_SEARCH_DETECTOR_PROMPT, build_domain_selection_prompt
 
 
 class WebSearchService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.llm_service = LLMService(settings)
-    
-    @observe(name="web_search_decision")
+        self.resources = RESOURCES
+
+    @observe(name="is_web_search_needed")
     async def is_web_search_needed(self, user_message: str) -> bool:
-        messages = [
-            {"role": "system", "content": WEB_SEARCH_DETECTOR_PROMPT},
-            {"role": "user", "content": user_message}
-        ]
+        print(f"Input (isWebSearchNeeded): {user_message}")
         
         response = await self.llm_service.generate_response(
             message=f"USER: {user_message}",
@@ -30,11 +29,45 @@ class WebSearchService:
         )
         
         response_clean = response.strip()
-        print(response_clean)
         
-        if response_clean == "1":
-            return True
-        elif response_clean == "0":
-            return False
-            
+        result = response_clean == "1"
+        print(f"Output (isWebSearchNeeded): {result}")
+        return result
+
+    @observe(name="generate_queries")
+    async def generate_queries(self, user_message: str) -> Dict[str, Any]:
+        print(f"Input (generateQueries): {user_message}")
+        
+        prompt = build_domain_selection_prompt()
+        response = await self.llm_service.generate_response(
+            message=f"USER: {user_message}",
+            context={"system_prompt": prompt},
+            model="gpt-4o-mini",
+            temperature=0.2,
+        )
+
+        parsed = json.loads(response)
+
+        if parsed is None:
+            print("Error parsing JSON response")
+            return {"queries": [], "thoughts": ""}
+
+        all_queries = parsed.get("queries", [])
+        filtered_queries = []
+        
+        for query in all_queries:
+            if not isinstance(query, dict):
+                continue
+                
+            query_url = query.get("url", "")
+            if any(domain["url"] in query_url for domain in self.resources):
+                filtered_queries.append(query)
+
+        result = {
+            "thoughts": parsed.get("_thoughts", ""),
+            "queries": filtered_queries,
+        }
+        
+        print(f"Output (generateQueries): {result}")
+        return result
 

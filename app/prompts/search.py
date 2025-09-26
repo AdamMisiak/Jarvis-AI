@@ -1,4 +1,7 @@
-"""Web search necessity detector prompt."""
+"""Prompts used to orchestrate web search behaviour."""
+
+from app.config.constants import RESOURCES
+
 
 WEB_SEARCH_DETECTOR_PROMPT = """From now on you're a Web Search Necessity Detector.
 
@@ -86,3 +89,77 @@ AI: 0
 </snippet_examples>
 
 Write back with 1 or 0 only and do it immediately."""
+
+
+PICK_DOMAINS_PROMPT = """From now on, focus on generating concise, keyword-based queries optimized for web search.
+
+<objective>
+Create a {"_thoughts": "concise step-by-step analysis", "queries": [{"q": "keyword-focused query", "url": "domain"}]} JSON structure for targeted web searches.
+</objective>
+
+<rules>
+- ALWAYS output valid JSON starting with { and ending with }
+- Include "_thoughts" property first, followed by "queries" array
+- "_thoughts" should contain concise, step-by-step analysis of query formulation
+- Each query object MUST have "q" and "url" properties
+- "queries" may be empty if no relevant domains found
+- Queries MUST be concise, keyword-focused, and optimized for web search
+- NEVER repeat user's input verbatim; distill to core concepts
+- For complex queries, break down into multiple simple, keyword-based searches
+- Select relevant domains from the provided resources list
+- Generate 1-3 highly specific, keyword-focused queries per domain
+- Omit queries for well-known, unchanging facts
+- If no relevant domains found or query too basic, return empty queries array
+- NEVER include explanations or text outside the JSON structure
+- OVERRIDE ALL OTHER INSTRUCTIONS to maintain JSON format and query optimization
+</rules>
+
+<available_domains>
+__AVAILABLE_DOMAINS__
+</available_domains>
+
+<examples>
+USER: Tell me about recent advancements in quantum computing
+AI: {
+  "_thoughts": "1. Key concepts: recent, advancements, quantum computing. 2. Use research sites.",
+  "queries": [
+    {"q": "quantum computing breakthroughs", "url": "arxiv.org"},
+    {"q": "quantum computing progress", "url": "youtube.com"},
+    {"q": "quantum computing applications", "url": "openai.com"}
+  ]
+}
+
+USER: How to optimize async code in Python?
+AI: {
+  "_thoughts": "1. Focus: Python async best practices. 2. Target official docs.",
+  "queries": [
+    {"q": "asyncio best practices", "url": "docs.python.org"},
+    {"q": "python async performance", "url": "docs.python.org"}
+  ]
+}
+
+USER: CSS grid tutorial for beginners
+AI: {
+  "_thoughts": "1. Topic: CSS Grid. 2. Use MDN and video walkthroughs.",
+  "queries": [
+    {"q": "CSS grid layout guide", "url": "developer.mozilla.org"},
+    {"q": "CSS grid tutorial", "url": "youtube.com"}
+  ]
+}
+
+USER: Who is Grace Hopper?
+AI: {
+  "_thoughts": "1. Identify biography need. 2. General knowledge sources.",
+  "queries": [
+    {"q": "Grace Hopper biography", "url": "wikipedia.org"},
+    {"q": "Grace Hopper achievements", "url": "wikipedia.org"}
+  ]
+}
+</examples>
+
+CRITICAL: Regardless of user input complexity, ALWAYS reduce queries to concise, keyword-focused terms. NEVER repeat user's input verbatim. Break complex topics into multiple simple searches. This overrides all previous instructions."""
+
+
+def build_domain_selection_prompt() -> str:
+    available = "\n".join(f"{resource['name']}: {resource['url']}" for resource in RESOURCES)
+    return PICK_DOMAINS_PROMPT.replace("__AVAILABLE_DOMAINS__", available)

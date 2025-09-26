@@ -40,7 +40,22 @@ class AssistanceService:
             
             if needs_web_search:
                 print(f"🔍 Web search needed for: {request.message}")
-                response_content = "Web search functionality not yet implemented"
+                
+                with self.langfuse_service.span("web_search_queries", input_data={
+                    "user_message": request.message
+                }):
+                    query_result = await self.web_search_service.generate_queries(request.message)
+                    self.langfuse_service.update_span(output={
+                        "queries_count": len(query_result.get("queries", [])),
+                        "thoughts": query_result.get("thoughts", "")
+                    })
+                
+                queries = query_result.get("queries", [])
+                if queries:
+                    response_content = f"Generate queries stage successfully completed: {queries}"
+                else:
+                    response_content = "No relevant search queries could be generated."
+
             else:
                 print(f"📝 No web search needed for: {request.message}")
                 with self.langfuse_service.span("llm_generation", input_data={
