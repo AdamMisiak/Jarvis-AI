@@ -40,7 +40,7 @@ class AssistanceService:
             
             if needs_web_search:
                 print(f"🔍 Web search needed for: {request.message}")
-                
+
                 with self.langfuse_service.span("web_search_queries", input_data={
                     "user_message": request.message
                 }):
@@ -49,10 +49,24 @@ class AssistanceService:
                         "queries_count": len(query_result.get("queries", [])),
                         "thoughts": query_result.get("thoughts", "")
                     })
-                
+
                 queries = query_result.get("queries", [])
                 if queries:
-                    response_content = f"Generate queries stage successfully completed: {queries}"
+                    print(f"🔍 Generated queries: {queries}")
+
+                    with self.langfuse_service.span("web_search_execution", input_data={
+                        "queries": queries
+                    }):
+                        search_results = await self.web_search_service.execute_search(queries)
+                        self.langfuse_service.update_span(output={
+                            "results_count": len(search_results),
+                            "results_preview": search_results[:3] if search_results else []
+                        })
+
+                    if search_results:
+                        response_content = f"Found {len(search_results)} search results: {search_results}"
+                    else:
+                        response_content = "No search results found."
                 else:
                     response_content = "No relevant search queries could be generated."
 

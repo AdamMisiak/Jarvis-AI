@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
+import httpx
 from langfuse import observe
 
 from app.config.settings import Settings
@@ -67,7 +68,54 @@ class WebSearchService:
             "thoughts": parsed.get("_thoughts", ""),
             "queries": filtered_queries,
         }
-        
+
         print(f"Output (generateQueries): {result}")
         return result
+
+    @observe(name="execute_search")
+    async def execute_search(self, queries: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+        print(f"Input (executeSearch): {queries}")
+
+        all_results = []
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for query_obj in queries:
+                query_text = query_obj.get("q", "")
+                domain = query_obj.get("url", "")
+
+                if not query_text or not domain:
+                    continue
+
+                search_query = f"site:{domain} {query_text}"
+
+                try:
+                    response = await client.post(
+                        f"{self.settings.firecrawl_api_url}/v1/search",
+                        headers={
+                            "Authorization": f"Bearer {self.settings.firecrawl_api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "query": search_query,
+                            "limit": 6,
+                        },
+                    )
+                    response.raise_for_status()
+
+                    data = response.json()
+                    results = data.get("data", [])
+
+                    for result in results:
+                        all_results.append({
+                            "url": result.get("url", ""),
+                            "title": result.get("title", ""),
+                            "description": result.get("description", ""),
+                        })
+
+                except httpx.HTTPError as e:
+                    print(f"Error searching {domain}: {e}")
+                    continue
+
+        print(f"Output (executeSearch): {all_results}")
+        return all_results
 
