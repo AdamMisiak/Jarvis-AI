@@ -64,7 +64,31 @@ class AssistanceService:
                         })
 
                     if search_results:
-                        response_content = f"Found {len(search_results)} search results: {search_results}"
+                        print(f"🔍 Found {len(search_results)} results, scoring them...")
+
+                        with self.langfuse_service.span("web_search_scoring", input_data={
+                            "results_count": len(search_results),
+                            "user_query": request.message
+                        }):
+                            scored_results = await self.web_search_service.score_results(
+                                search_results,
+                                request.message
+                            )
+                            self.langfuse_service.update_span(output={
+                                "top_results_count": len(scored_results),
+                                "top_scores": [r["score"] for r in scored_results],
+                                "top_results": scored_results
+                            })
+
+                        if scored_results:
+                            response_content = f"Found {len(scored_results)} most relevant results:\n\n"
+                            for idx, result in enumerate(scored_results, 1):
+                                response_content += f"{idx}. {result['title']}\n"
+                                response_content += f"   URL: {result['url']}\n"
+                                response_content += f"   Score: {result['score']}\n"
+                                response_content += f"   Reason: {result['reason']}\n\n"
+                        else:
+                            response_content = "No relevant results found after scoring."
                     else:
                         response_content = "No search results found."
                 else:
