@@ -21,6 +21,7 @@ class LLMService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.api_key = settings.openai_api_key
+        self._client: Optional[httpx.AsyncClient] = None
     
     @observe(name="llm_request")
     async def generate_response(
@@ -50,6 +51,16 @@ class LLMService:
         
         return content
     
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+        return self._client
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
     async def _make_openai_request(
         self,
         messages: List[Dict[str, str]],
@@ -61,20 +72,20 @@ class LLMService:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        
+
         payload = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            response = await client.post(
-                OPENAI_API_URL,
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            return response.json()
-    
+
+        client = self._get_client()
+        response = await client.post(
+            OPENAI_API_URL,
+            headers=headers,
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+

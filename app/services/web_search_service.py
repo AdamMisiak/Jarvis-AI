@@ -1,5 +1,6 @@
 """Web search service implementation with intelligent decision making."""
 
+import asyncio
 import json
 import re
 from typing import Any, Dict, List, Optional
@@ -124,75 +125,95 @@ class WebSearchService:
         print(f"Output (executeSearch): Found {len(all_results)} results")
         return all_results
 
+    async def _score_single_result(
+        self,
+        result: Dict[str, Any],
+        user_query: str
+    ) -> Dict[str, Any]:
+        url = result.get("url", "")
+        title = result.get("title", "")
+        description = result.get("description", "")
+        generated_query = result.get("query", "")
+
+        if not url or not description:
+            return {
+                "url": url,
+                "title": title,
+                "description": description,
+                "score": 0.0,
+                "reason": "Missing url or description",
+            }
+
+        evaluation_message = f"""
+            <context>
+            Resource: {url}
+            Snippet: {description}
+            </context>
+
+            The following is the original user query that we are scoring the resource against. It's super relevant.
+            <original_user_query_to_consider>
+            {user_query}
+            </original_user_query_to_consider>
+
+            The following is the generated query that may be helpful in scoring the resource.
+            <query>
+            {generated_query}
+            </query>
+        """
+
+        try:
+            response = await self.llm_service.generate_response(
+                message=evaluation_message,
+                context={"system_prompt": RATE_SEARCH_RESULT_PROMPT},
+                model="gpt-4o-mini",
+                temperature=0.2,
+            )
+
+            parsed = json.loads(response)
+            score = parsed.get("score", 0.0)
+            reason = parsed.get("reason", "")
+
+            print(f"Scored {url}: {score} - {reason[:50]}...")
+
+            return {
+                "url": url,
+                "title": title,
+                "description": description,
+                "score": score,
+                "reason": reason,
+            }
+
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Error scoring result {url}: {e}")
+            return {
+                "url": url,
+                "title": title,
+                "description": description,
+                "score": 0.0,
+                "reason": "Failed to score",
+            }
+
     @observe(name="score_results")
     async def score_results(
         self,
         results: List[Dict[str, Any]],
         user_query: str
     ) -> List[Dict[str, Any]]:
+        """Score search results based on relevance to user query.
+
+        Executes all scoring requests concurrently for better performance.
+        """
         print(f"Input (scoreResults): Scoring {len(results)} results for query: {user_query}")
 
-        scored_results = []
+        # Execute all scoring requests concurrently
+        scoring_tasks = [
+            self._score_single_result(result, user_query)
+            for result in results
+        ]
 
-        for result in results:
-            url = result.get("url", "")
-            title = result.get("title", "")
-            description = result.get("description", "")
-            generated_query = result.get("query", "")
+        scored_results = await asyncio.gather(*scoring_tasks)
 
-            if not url or not description:
-                continue
-
-            evaluation_message = f"""
-                <context>
-                Resource: {url}
-                Snippet: {description}
-                </context>
-
-                The following is the original user query that we are scoring the resource against. It's super relevant.
-                <original_user_query_to_consider>
-                {user_query}
-                </original_user_query_to_consider>
-
-                The following is the generated query that may be helpful in scoring the resource.
-                <query>
-                {generated_query}
-                </query>
-            """
-
-
-            try:
-                response = await self.llm_service.generate_response(
-                    message=evaluation_message,
-                    context={"system_prompt": RATE_SEARCH_RESULT_PROMPT},
-                    model="gpt-4o-mini",
-                    temperature=0.2,
-                )
-
-                parsed = json.loads(response)
-                score = parsed.get("score", 0.0)
-                reason = parsed.get("reason", "")
-
-                scored_results.append({
-                    "url": url,
-                    "title": title,
-                    "description": description,
-                    "score": score,
-                    "reason": reason,
-                })
-
-                print(f"Scored {url}: {score} - {reason[:50]}...")
-
-            except (json.JSONDecodeError, Exception) as e:
-                print(f"Error scoring result {url}: {e}")
-                scored_results.append({
-                    "url": url,
-                    "title": title,
-                    "description": description,
-                    "score": 0.0,
-                    "reason": "Failed to score",
-                })
-
+        # Sort by score descending and take top 3
         sorted_results = sorted(scored_results, key=lambda x: x["score"], reverse=True)
         top_results = sorted_results[:3]
 
