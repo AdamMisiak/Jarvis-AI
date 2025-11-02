@@ -81,12 +81,34 @@ class AssistanceService:
                             })
 
                         if scored_results:
-                            response_content = f"Found {len(scored_results)} most relevant results:\n\n"
-                            for idx, result in enumerate(scored_results, 1):
-                                response_content += f"{idx}. {result['title']}\n"
-                                response_content += f"   URL: {result['url']}\n"
-                                response_content += f"   Score: {result['score']}\n"
-                                response_content += f"   Reason: {result['reason']}\n\n"
+                            print(f"🔍 Selecting resources to load from {len(scored_results)} scored results...")
+
+                            with self.langfuse_service.span("web_search_resource_selection", input_data={
+                                "scored_results_count": len(scored_results),
+                                "user_query": request.message
+                            }):
+                                selected_urls = await self.web_search_service.select_resources_to_load(
+                                    scored_results,
+                                    request.message
+                                )
+                                self.langfuse_service.update_span(output={
+                                    "selected_urls_count": len(selected_urls),
+                                    "selected_urls": selected_urls
+                                })
+
+                            if selected_urls:
+                                response_content = f"Found {len(scored_results)} relevant results. Selected {len(selected_urls)} URLs for scraping:\n\n"
+                                for idx, result in enumerate(scored_results, 1):
+                                    is_selected = result['url'] in selected_urls
+                                    marker = "✓" if is_selected else " "
+                                    response_content += f"[{marker}] {idx}. {result['title']}\n"
+                                    response_content += f"    URL: {result['url']}\n"
+                                    response_content += f"    Score: {result['score']}\n"
+                                    if is_selected:
+                                        response_content += f"    → Selected for scraping\n"
+                                    response_content += "\n"
+                            else:
+                                response_content = f"Found {len(scored_results)} relevant results, but none were selected for scraping."
                         else:
                             response_content = "No relevant results found after scoring."
                     else:

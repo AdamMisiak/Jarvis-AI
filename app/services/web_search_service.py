@@ -15,6 +15,7 @@ from app.prompts.search import (
     WEB_SEARCH_DETECTOR_PROMPT,
     build_domain_selection_prompt,
     RATE_SEARCH_RESULT_PROMPT,
+    SELECT_RESOURCES_TO_LOAD_PROMPT,
 )
 
 
@@ -199,10 +200,6 @@ class WebSearchService:
         results: List[Dict[str, Any]],
         user_query: str
     ) -> List[Dict[str, Any]]:
-        """Score search results based on relevance to user query.
-
-        Executes all scoring requests concurrently for better performance.
-        """
         print(f"Input (scoreResults): Scoring {len(results)} results for query: {user_query}")
 
         # Execute all scoring requests concurrently
@@ -219,4 +216,56 @@ class WebSearchService:
 
         print(f"Output (scoreResults): Top 3 results with scores: {[r['score'] for r in top_results]}")
         return top_results
+
+    @observe(name="select_resources_to_load")
+    async def select_resources_to_load(
+        self,
+        scored_results: List[Dict[str, Any]],
+        user_query: str
+    ) -> List[str]:
+        print(f"Input (selectResourcesToLoad): Selecting from {len(scored_results)} results for query: {user_query}")
+
+        if not scored_results:
+            print("Output (selectResourcesToLoad): No results to select from")
+            return []
+
+        # Format filtered resources with URL and snippet for better context
+        filtered_resources = [
+            {
+                "url": result["url"],
+                "snippet": result["description"]
+            }
+            for result in scored_results
+        ]
+        filtered_urls = [result["url"] for result in scored_results]
+
+        selection_message = f"""
+            Original query: "{user_query}"
+            Filtered resources:
+            {json.dumps(filtered_resources, indent=2)}
+        """
+
+        try:
+            response = await self.llm_service.generate_response(
+                message=selection_message,
+                context={"system_prompt": SELECT_RESOURCES_TO_LOAD_PROMPT},
+                model="gpt-4o-mini",
+                temperature=0.2,
+            )
+
+            parsed = json.loads(response)
+            selected_urls = parsed.get("urls", [])
+
+            # Validate that selected URLs are from the filtered resources
+            validated_urls = [
+                url for url in selected_urls
+                if url in filtered_urls
+            ]
+
+            print(f"Output (selectResourcesToLoad): Selected {len(validated_urls)} URLs: {validated_urls}")
+            return validated_urls
+
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Error selecting resources: {e}")
+            return []
 
