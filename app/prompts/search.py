@@ -338,3 +338,32 @@ Analyze the original query and filtered resources, then return the JSON structur
 def build_domain_selection_prompt() -> str:
     available = "\n".join(f"{resource['name']}: {resource['url']}" for resource in RESOURCES)
     return PICK_DOMAINS_PROMPT.replace("__AVAILABLE_DOMAINS__", available)
+
+
+def build_answer_prompt(merged_results: list) -> str:
+    """Build answer prompt with search results and scraped content.
+
+    Args:
+        merged_results: List of dicts with url, title, description, and optional content
+
+    Returns:
+        Formatted prompt for answer generation
+    """
+    if len(merged_results) > 0:
+        results_section = "\n".join([
+            f'''<search_result url="{result.get('url', '')}" title="{result.get('title', '')}" description="{result.get('description', '')}">
+{result.get('content', '')}
+</search_result>'''
+            for result in merged_results
+        ])
+
+        return f"""Answer the question based on the provided search results and scraped content. Use the fewest words possible.
+
+<search_results>
+{results_section}
+</search_results>
+
+Answer using the most relevant fragments, using markdown formatting, including links and highlights.
+Make sure to don't mismatch the links and the results."""
+    else:
+        return """Provide a concise answer based on your existing knowledge, using markdown formatting where appropriate. Remember, web browsing is available for whitelisted domains. While no search results are currently available for this query, it may indicate that the domain isn't whitelisted or the content couldn't be fetched due to system limitations. In such cases, inform the user about these constraints."""

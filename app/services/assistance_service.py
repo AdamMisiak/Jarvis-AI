@@ -11,6 +11,7 @@ from app.services.llm_service import LLMService
 from app.services.langfuse_service import LangfuseService
 from app.services.web_search_service import WebSearchService
 from app.config.settings import Settings
+from app.prompts.search import build_answer_prompt
 
 
 class AssistanceService:
@@ -97,16 +98,51 @@ class AssistanceService:
                                 })
 
                             if selected_urls:
-                                response_content = f"Found {len(scored_results)} relevant results. Selected {len(selected_urls)} URLs for scraping:\n\n"
-                                for idx, result in enumerate(scored_results, 1):
-                                    is_selected = result['url'] in selected_urls
-                                    marker = "✓" if is_selected else " "
-                                    response_content += f"[{marker}] {idx}. {result['title']}\n"
-                                    response_content += f"    URL: {result['url']}\n"
-                                    response_content += f"    Score: {result['score']}\n"
-                                    if is_selected:
-                                        response_content += f"    → Selected for scraping\n"
-                                    response_content += "\n"
+                                print(f"🔍 Scraping {len(selected_urls)} selected URLs...")
+
+                                with self.langfuse_service.span("web_search_scraping", input_data={
+                                    "urls_count": len(selected_urls),
+                                    "urls": selected_urls
+                                }):
+                                    scraped_content = await self.web_search_service.scrape_urls(selected_urls)
+                                    self.langfuse_service.update_span(output={
+                                        "scraped_count": len(scraped_content),
+                                        "total_chars": sum(len(item.get("content", "")) for item in scraped_content)
+                                    })
+
+                                # Merge scraped content with scored results
+                                merged_results = []
+                                for result in scored_results:
+                                    merged_result = {
+                                        "url": result["url"],
+                                        "title": result["title"],
+                                        "description": result["description"],
+                                    }
+
+                                    # Add scraped content if available
+                                    scraped = next((s for s in scraped_content if s["url"] == result["url"]), None)
+                                    if scraped:
+                                        merged_result["content"] = scraped["content"]
+
+                                    merged_results.append(merged_result)
+
+                                print(f"🔍 Generating answer with {len(merged_results)} results ({len(scraped_content)} with content)...")
+
+                                with self.langfuse_service.span("web_search_answer_generation", input_data={
+                                    "user_query": request.message,
+                                    "results_count": len(merged_results),
+                                    "scraped_count": len(scraped_content)
+                                }):
+                                    answer_prompt = build_answer_prompt(merged_results)
+                                    response_content = await self.llm_service.generate_response(
+                                        message=request.message,
+                                        context={"system_prompt": answer_prompt},
+                                        model="gpt-4o",
+                                    )
+                                    self.langfuse_service.update_span(output={
+                                        "response_length": len(response_content),
+                                        "response_preview": response_content[:200]
+                                    })
                             else:
                                 response_content = f"Found {len(scored_results)} relevant results, but none were selected for scraping."
                         else:

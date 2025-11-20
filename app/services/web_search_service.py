@@ -269,3 +269,89 @@ class WebSearchService:
             print(f"Error selecting resources: {e}")
             return []
 
+    @observe(name="scrape_urls")
+    async def scrape_urls(self, urls: List[str]) -> List[Dict[str, str]]:
+        """Scrape full markdown content from selected URLs using FireCrawl.
+
+        Args:
+            urls: List of URLs to scrape
+
+        Returns:
+            List of dicts with url and content (markdown text)
+        """
+        print(f"Input (scrapeUrls): Scraping {len(urls)} URLs")
+
+        if not urls:
+            print("Output (scrapeUrls): No URLs to scrape")
+            return []
+
+        # Filter URLs by scrappability based on domain
+        scrappable_urls = []
+        for url in urls:
+            # Extract domain from URL
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(url if url.startswith('http') else f'https://{url}')
+                domain = parsed.netloc.replace('www.', '')
+
+                # Check if domain is scrappable
+                is_scrappable = any(
+                    resource["url"] in domain and resource.get("scrappable", True)
+                    for resource in self.resources
+                )
+
+                if is_scrappable:
+                    scrappable_urls.append(url)
+                else:
+                    print(f"Skipping non-scrappable URL: {url}")
+
+            except Exception as e:
+                print(f"Error parsing URL {url}: {e}")
+                continue
+
+        if not scrappable_urls:
+            print("Output (scrapeUrls): No scrappable URLs after filtering")
+            return []
+
+        print(f"Scraping {len(scrappable_urls)} scrappable URLs")
+
+        scraped_results = []
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for url in scrappable_urls:
+                try:
+                    response = await client.post(
+                        f"{self.settings.firecrawl_api_url}/v1/scrape",
+                        headers={
+                            "Authorization": f"Bearer {self.settings.firecrawl_api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "url": url,
+                            "formats": ["markdown"],
+                        },
+                    )
+                    response.raise_for_status()
+
+                    data = response.json()
+                    markdown_content = data.get("data", {}).get("markdown", "")
+
+                    if markdown_content:
+                        scraped_results.append({
+                            "url": url,
+                            "content": markdown_content,
+                        })
+                        print(f"Successfully scraped {url}: {len(markdown_content)} chars")
+                    else:
+                        print(f"No markdown content from {url}")
+
+                except httpx.HTTPError as e:
+                    print(f"Error scraping {url}: {e}")
+                    continue
+                except Exception as e:
+                    print(f"Unexpected error scraping {url}: {e}")
+                    continue
+
+        print(f"Output (scrapeUrls): Successfully scraped {len(scraped_results)} URLs")
+        return scraped_results
+
